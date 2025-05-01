@@ -9,10 +9,8 @@ import platform
 import webbrowser
 import tkinter.messagebox as messagebox
 import ctypes
-import subprocess
 import time
 
-from ctypes import c_int, byref
 from datetime import datetime, timedelta
 from dotenv import dotenv_values
 from threading import Thread, Lock
@@ -173,26 +171,21 @@ WRITE_DAC = 0x00040000
 # SYSTEM SID (S-1-5-18)
 SYSTEM_SID = b'\x01\x00\x00\x00\x00\x00\x00\x05\x0a\x00\x00\x00'
 
-
-def enable_self_protection():
-    """Включает защиту процесса от завершения через DACL"""
+def enable_stronger_self_protection():
+    """
+    Блокирует завершение процесса через диспетчер задач и другие процессы.
+    Запрещает завершение всем, кроме владельца.
+    """
     try:
         kernel32 = ctypes.windll.kernel32
         advapi32 = ctypes.windll.advapi32
 
-        # Константы Windows API
-        SE_KERNEL_OBJECT = 6
+        SE_KERNEL_OBJECT = 6  # Тип объекта: процесс/поток
         DACL_SECURITY_INFORMATION = 0x00000004
         PROCESS_TERMINATE = 0x0001
         READ_CONTROL = 0x00020000
         WRITE_DAC = 0x00040000
-        PROCESS_ALL_ACCESS = 0x1F0FFF
-
-        ACCESS_DENIED_ACE_TYPE = 0x1
-        NO_INHERITANCE = 0x0
-
-        # SID для SYSTEM (S-1-5-18)
-        SYSTEM_SID = b'\x01\x00\x00\x00\x00\x00\x00\x05\x0a\x00\x00\x00'
+        EVERYONE_SID = b'\x01\x01\x00\x00\x00\x00\x00\x05\x0a\x00\x00\x00'  # SID Everyone
 
         current_pid = os.getpid()
         print(f"[DEBUG] Текущий PID: {current_pid}")
@@ -209,7 +202,7 @@ def enable_self_protection():
 
         print(f"[DEBUG] Хендл процесса: {hProcess} (тип: {type(hProcess)})")
 
-        # Получаем текущий Security Descriptor
+        # Получаем размер Security Descriptor
         dwBufferSize = ctypes.c_ulong(0)
         res = advapi32.GetSecurityInfo(
             hProcess,
@@ -219,8 +212,9 @@ def enable_self_protection():
             ctypes.byref(dwBufferSize)
         )
 
-        if res != 0x7A:  # ERROR_INSUFFICIENT_BUFFER
+        if res != 0x7A and res != 0:
             print(f"[!] GetSecurityInfo провалился. Код ошибки: {res}")
+            kernel32.CloseHandle(hProcess)
             return
 
         sd_buffer = ctypes.create_string_buffer(dwBufferSize.value)
@@ -231,43 +225,40 @@ def enable_self_protection():
             SE_KERNEL_OBJECT,
             DACL_SECURITY_INFORMATION,
             None, None, None, None,
-            ctypes.byref(psd)
+            psd
         )
 
         if res != 0:
-            print(f"[!] GetSecurityInfo провалился на втором этапе. Код ошибки: {res}")
+            print(f"[!] Ошибка получения Security Descriptor: {res}")
+            kernel32.CloseHandle(hProcess)
             return
 
-        print("[DEBUG] Security Descriptor получен")
+        print("[DEBUG] Security Descriptor успешно получен")
 
-        # Создаем новый DACL
+        # Создаём новый DACL
         dacl_size = ctypes.sizeof(ctypes.c_byte) * 1024
         pDacl = ctypes.create_string_buffer(dacl_size)
 
         res = advapi32.InitializeAcl(pDacl, dacl_size, 2)
         if not res:
             print(f"[!] InitializeAcl провалился. Код ошибки: {ctypes.GetLastError()}")
+            kernel32.CloseHandle(hProcess)
             return
 
-        # Добавляем ACE, запрещающий завершение процесса
+        print("[DEBUG] DACL создан")
+
+        # Добавляем ACE, запрещающий завершение всем
         res = advapi32.AddAccessDeniedAce(
-            pDacl, 2, PROCESS_TERMINATE, SYSTEM_SID
+            pDacl, 2, PROCESS_TERMINATE, EVERYONE_SID
         )
         if not res:
-            print(f"[!] AddAccessDeniedAce провалился. Код ошибки: {ctypes.GetLastError()}")
+            print(f"[!] AddAccessDeniedAce (Everyone) провалился. Код ошибки: {ctypes.GetLastError()}")
+            kernel32.CloseHandle(hProcess)
             return
 
-        print("[DEBUG] ACE успешно добавлен")
+        print("[DEBUG] ACE (Everyone) успешно добавлен")
 
-        # Устанавливаем DACL в Security Descriptor
-        res = advapi32.SetSecurityDescriptorDacl(psd, True, pDacl, False)
-        if not res:
-            print(f"[!] SetSecurityDescriptorDacl провалился. Код ошибки: {ctypes.GetLastError()}")
-            return
-
-        print("[DEBUG] DACL установлен в Security Descriptor")
-
-        # Применяем новый Security Descriptor к процессу
+        # Применяем DACL через SetSecurityInfo
         res = advapi32.SetSecurityInfo(
             hProcess,
             SE_KERNEL_OBJECT,
@@ -278,12 +269,12 @@ def enable_self_protection():
         kernel32.CloseHandle(hProcess)
 
         if res == 0:
-            print("[+] Самозащита процесса включена")
+            print("[+] Усиленная самозащита включена")
         else:
             print(f"[!] SetSecurityInfo провалился. Код ошибки: {res}")
 
     except Exception as e:
-        print(f"[!] Не удалось включить самозащиту: {e}")
+        print(f"[!] Исключение при включении самозащиты: {e}")
 
 def is_admin():
     """Проверяет, запущено ли приложение от имени администратора."""
@@ -793,8 +784,8 @@ def is_already_running():
 def main():
     if not is_admin():
         print("[!] Для включения самозащиты требуется запускать программу от имени администратора.")
-    if "--anti-killer" in sys.argv:
-        enable_self_protection()  # Включаем самозащиту
+    # if "--anti-killer" in sys.argv:
+    enable_stronger_self_protection() # Включаем самозащиту
     check_for_updates()
     check_hosts_file()  # Проверяем hosts при запуске
     menu()
