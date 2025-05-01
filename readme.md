@@ -1,87 +1,96 @@
-Этот проект представляет собой улучшенную версию диспетчера задач, которая позволяет:  
-- Просматривать запущенные процессы.  
+# 🛡️ PyTaskManager — Улучшенный диспетчер задач
+
+Этот проект представляет собой улучшенную версию диспетчера задач, которая позволяет:
+- Просматривать запущенные процессы.
 - Проверять исполняемые файлы процессов на вирусы через VirusTotal API.
 - Просматривать и управлять автозагрузкой системы.
 - Открывать расположение файлов процессов или записей автозагрузки в проводнике.
 - Завершать процессы по PID.
-
-Основные функции:
-1. **Просмотр процессов**:
-   - Список всех запущенных процессов с информацией о CPU, памяти и пути к исполняемому файлу.
-   - Проверка файлов процессов на вирусы через VirusTotal.
-
-2. **Автозагрузка**:
-   - Просмотр всех записей автозагрузки (из реестра и папок автозагрузки).
-   - Удаление ненужных записей из автозагрузки.
-   - Цветовая маркировка подозрительных записей (скрытые файлы, недавно добавленные).
-
-3. **Управление процессами**:
-   - Завершение процесса по PID.
-   - Открытие папки с исполняемым файлом процесса в проводнике.
-
-4. **Сохранение отчетов**:
-   - Результаты проверки процессов сохраняются в текстовый файл для дальнейшего анализа.
+- Скачивать популярные антивирусные сканеры.
+- Защищать программу от завершения из диспетчера задач (в разработке).
+- Восстанавливать стандартный файл hosts.
+- Автономно перезапускаться, если был завершён другим процессом.
 
 ---
 
-## Project Description (English)
+## 🔧 Основные функции
 
-This project is an enhanced version of the task manager that allows you to:
-- View running processes.
-- Check process executable files for viruses using the VirusTotal API.
-- View and manage system startup entries.
-- Open the location of process files or startup entries in Explorer.
-- Terminate processes by PID.
+### 1. **Просмотр процессов**
+- Список всех запущенных процессов с информацией о CPU, памяти и пути к исполняемому файлу.
+- Цветовая маркировка подозрительных процессов.
+- Проверка файлов процессов на вирусы через VirusTotal.
 
-Key features:
-1. **Process Viewer**:
-   - List all running processes with information about CPU, memory, and the path to the executable file.
-   - Check process files for viruses via VirusTotal.
+### 2. **Автозагрузка**
+- Просмотр всех записей автозагрузки (из реестра и папок автозагрузки).
+- Удаление ненужных записей из автозагрузки.
+- Цветовая маркировка подозрительных записей:  
+  - 🔴 Красный цвет — скрытые файлы (потенциально вредоносные).  
+  - 🟡 Желтый цвет — недавно добавленные.  
+  - 🟢 Зеленый — обычные файлы.
 
-2. **Startup Manager**:
-   - View all startup entries (from the registry and startup folders).
-   - Remove unnecessary entries from the startup list.
-   - Color-coded highlighting of suspicious entries (hidden files, recently added).
+### 3. **Управление процессами**
+- Завершение процесса по PID.
+- Открытие папки с исполняемым файлом процесса в проводнике.
 
-3. **Process Management**:
-   - Terminate a process by PID.
-   - Open the folder containing the process's executable file in Explorer.
+### 4. **Сохранение отчетов**
+- Результаты проверки процессов сохраняются в текстовый файл для дальнейшего анализа.
 
-4. **Report Saving**:
-   - The results of process checks are saved to a text file for further analysis.
+### 5. **Загрузка антивирусных сканеров**
+- Поддерживает загрузку следующих инструментов:
+  - KVRT (Kaspersky)
+  - AdwCleaner
+  - ESET Online Scanner
+  - TDSSKiller (Kaspersky)
+  - RogueKiller
+  - Comodo Cleaning Essentials
+  - HitmanPro
+  - Malwarebytes
+  - AnVir Task Manager
 
+### 6. **Проверка и восстановление файла hosts**
+- Обнаруживает опасные перенаправления доменов антивирусных компаний.
+- Предлагает восстановить стандартный файл hosts.
+
+### 7. **Защита от завершения процесса**
+- Использует Windows API (DACL) для защиты от завершения через диспетчер задач.
+- **В разработке**: полная реализация самозащиты.
+
+### 8. **Автономный перезапуск**
+- Если процесс завершается не пользователем (например, через диспетчер задач), он автоматически перезапускается.
+
+### 9. **Удаление ограничений запуска из реестра**
+- Удаляет политики запрета запуска программ из ключа: HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\DisallowRun  
 ---
 
-## Требования / Requirements
+## 📦 Требования / Requirements
 
 ### Python
-- Версия Python: 3.8 или выше.
-- Python version: 3.8 or higher.
+- Версия: 3.8 или выше
 
 ### Зависимости / Dependencies
-Все зависимости перечислены в файле `requirements.txt`. Для установки выполните команду:
-All dependencies are listed in the `requirements.txt` file. To install them, run:  
-```pip install -r requirements.txt ```  
-
-## VirusTotal API Key  
-Получите API ключ на VirusTotal.  
-Create an API key on VirusTotal.  
-Создайте файл .env в корневой директории проекта и добавьте туда ваш API ключ:  
-Create .env file in root directory and add you API key  
-KEY=api_key  
-
-### Установка и запуск / Installation and Running
-1. Клонирование репозитория / Clone the Repository:  
-```git clone https://github.com/Processori7/pytaskmanager.git```  
+Все зависимости перечислены в файле `requirements.txt`. Для установки выполните:
+```
+pip install -r requirements.txt
+```  
+#### VirusTotal API Key  
+Получите API ключ на VirusTotal  
+Создайте файл .env в корневой директории и добавьте ваш API ключ: KEY=your_api_key_here  
+## 🚀 Установка и запуск / Installation and Running  
+1. Клонирование репозитория  
+```
+git clone https://github.com/Processori7/pytaskmanager.git
+```
 ```cd pytaskmanager```  
-2. Создание виртуального окружения / Create a Virtual Environment :
-```python -m venv venv```  
-На Unix/On Unix: ```python3 -m venv venv```  
-3. Активировать виртуальное окружение / Activate virtual environment:  
-. Windows:  
+2. Создание виртуального окружения  
+```
+python -m venv venv
+```  
+На Windows:  
 ```venv\Scripts\activate```  
-. Unix:  
-```source venv/bin/activate```
-4. Установить зависимости / Install dependencies:
+На Linux:  
+```source venv/bin/activate```  
+3. Установка зависимостей  
 ```pip install -r requirements.txt```  
-5. Запустить файл / Run file: ```python main.py```
+4. Запуск программы  
+```python main.py```  
+### ⚠️ Рекомендуется запускать от имени администратора , чтобы использовать защиту от завершения и удаление политик автозагрузки.
