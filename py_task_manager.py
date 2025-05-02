@@ -10,6 +10,7 @@ import webbrowser
 import tkinter.messagebox as messagebox
 import ctypes
 import time
+import subprocess
 
 from datetime import datetime, timedelta
 from dotenv import dotenv_values
@@ -27,7 +28,7 @@ except:
 lock = Lock()
 results_cache = {}  # Кэш для хранения результатов VirusTotal
 suspicious_files = []
-CURRENT_VERSION = "1.1"  # Обновлена версия
+CURRENT_VERSION = "1.2"  # Обновлена версия
 
 def check_hosts_file():
     """Проверяет файл hosts на наличие подозрительных перенаправлений, особенно антивирусных сайтов."""
@@ -84,6 +85,162 @@ def check_hosts_file():
 
     print("Файл hosts в порядке.")
     return False
+
+def check_registry_restrictions():
+    """
+    Проверяет наличие ограничений в реестре для системных утилит.
+    Считает блокировкой любое существующее значение, независимо от его содержания.
+    При разблокировке удаляет параметр из реестра.
+    """
+    # Список корневых разделов реестра для проверки
+    root_keys = [
+        (winreg.HKEY_CURRENT_USER, "HKEY_CURRENT_USER"),
+        (winreg.HKEY_LOCAL_MACHINE, "HKEY_LOCAL_MACHINE")
+    ]
+
+    # Описание ограничений с корректными путями для каждого раздела
+    restrictions = {
+        "DisableTaskMgr": {
+            "paths": {
+                winreg.HKEY_CURRENT_USER: r"Software\Microsoft\Windows\CurrentVersion\Policies\System",
+                winreg.HKEY_LOCAL_MACHINE: r"Software\Microsoft\Windows\CurrentVersion\Policies\System"
+            },
+            "description": "Диспетчер задач"
+        },
+        "DisableCMD": {
+            "paths": {
+                winreg.HKEY_CURRENT_USER: r"Software\Policies\Microsoft\Windows\System",
+                winreg.HKEY_LOCAL_MACHINE: r"Software\Policies\Microsoft\Windows\System"
+            },
+            "description": "Командная строка"
+        },
+        "ExecutionPolicy": {
+            "paths": {
+                winreg.HKEY_CURRENT_USER: r"Software\Policies\Microsoft\Windows\PowerShell\ScriptPolicies",
+                winreg.HKEY_LOCAL_MACHINE: r"Software\Policies\Microsoft\Windows\PowerShell\ScriptPolicies"
+            },
+            "description": "PowerShell"
+        },
+        "disablegpedit": {
+            "paths": {
+                winreg.HKEY_CURRENT_USER: r"Software\Microsoft\Windows\CurrentVersion\Policies\System",
+                winreg.HKEY_LOCAL_MACHINE: r"Software\Microsoft\Windows\CurrentVersion\Policies\System"
+            },
+            "description": "Редактор групповых политик"
+        },
+        "DisableRegistryTools": {
+            "paths": {
+                winreg.HKEY_CURRENT_USER: r"Software\Microsoft\Windows\CurrentVersion\Policies\System",
+                winreg.HKEY_LOCAL_MACHINE: r"Software\Microsoft\Windows\CurrentVersion\Policies\System"
+            },
+            "description": "Редактор реестра (regedit)"
+        }
+    }
+
+    detected = []  # Список обнаруженных ограничений
+
+    # Проверяем каждый ключ в каждом корневом разделе
+    for key_name, info in restrictions.items():
+        for root_key, root_name in root_keys:
+            path = info["paths"][root_key]
+            try:
+                with winreg.OpenKey(root_key, path, 0, winreg.KEY_READ) as key:
+                    try:
+                        # Пытаемся прочитать значение — если оно есть, значит ограничение установлено
+                        value, regtype = winreg.QueryValueEx(key, key_name)
+                        detected.append((root_key, root_name, path, key_name, info))
+                        print(f"[DEBUG] Обнаружено ограничение: {root_name}\\{path}\\{key_name} = {value} (тип: {regtype})")
+                    except FileNotFoundError:
+                        print(f"[DEBUG] Ключ не найден: {root_name}\\{path}\\{key_name}")
+            except (FileNotFoundError, OSError):
+                continue  # Пропускаем, если путь отсутствует
+
+    # Выводим результаты
+    if detected:
+        print("\nОбнаружены блокировки в реестре:")
+        for idx, (root_key, root_name, path, key_name, info) in enumerate(detected):
+            print(f"{idx + 1}. {info['description']} (ключ: {root_name}\\{path})")
+
+        if messagebox.askyesno("Блокировки найдены", "Обнаружены ограничения в реестре. Удалить?"):
+            for root_key, root_name, path, key_name, info in detected:
+                try:
+                    # Открываем ключ с правами на запись
+                    with winreg.OpenKey(root_key, path, 0, winreg.KEY_WRITE) as key:
+                        winreg.DeleteValue(key, key_name)
+                        print(f"[+] Блокировка удалена: {info['description']} ({root_name})")
+                except Exception as e:
+                    print(f"[!] Ошибка при удалении {info['description']} ({root_name}): {e}")
+    else:
+        print("Ограничений в реестре не обнаружено")
+    return bool(detected)
+
+def port_menu():
+    """Меню управления портами"""
+    while True:
+        print("\n=== Управление портами ===")
+        print("1. Открыть порт")
+        print("2. Закрыть порт")
+        print("3. Вернуться в главное меню")
+
+        choice = input("Выберите действие: ").strip()
+
+        if choice == '3':
+            return
+
+        if choice in ('1', '2'):
+            try:
+                port = int(input("Введите номер порта (1-65535): "))
+                if not 1 <= port <= 65535:
+                    print("Неверный номер порта")
+                    continue
+
+                protocol = input("Протокол (TCP/UDP): ").upper()
+                if protocol not in ("TCP", "UDP"):
+                    print("Неверный протокол")
+                    continue
+
+                direction = input("Направление (in/out): ").lower()
+                if direction not in ("in", "out"):
+                    print("Неверное направление")
+                    continue
+
+                action = "add" if choice == '1' else "delete"
+                manage_ports(action, port, protocol, direction)
+
+            except ValueError:
+                print("Введите корректный номер порта")
+        else:
+            print("Неверный выбор")
+
+def manage_ports(action, port, protocol="TCP", direction="in"):
+    """
+    Управление портами через брандмауэр Windows
+    action: "add" или "delete"
+    port: номер порта
+    protocol: TCP или UDP
+    direction: in или out
+    """
+    try:
+        rule_name = f"Port_{port}_{protocol}_{direction}"
+        cmd = ["netsh", "advfirewall", "firewall", f"{action} rule",
+               f"name={rule_name}"]
+
+        if action == "add":
+            cmd.extend([
+                f"dir={direction}", "action=allow",
+                f"protocol={protocol}", f"localport={port}"
+            ])
+
+        result = subprocess.run(cmd, capture_output=True, text=True, shell=True)
+        if result.returncode == 0:
+            print(f"[+] Порт {port}/{protocol} {direction} {'открыт' if action == 'add' else 'закрыт'}")
+            return True
+        else:
+            print(f"[!] Ошибка: {result.stderr}")
+            return False
+    except Exception as e:
+        print(f"[!] Ошибка управления портами: {e}")
+        return False
 
 def restore_hosts():
     """Восстанавливает стандартный файл hosts"""
@@ -159,129 +316,6 @@ def remove_disallow_run():
     except Exception as e:
         print(f"Ошибка при удалении ограничений: {e}")
         messagebox.showerror("Ошибка", f"Не удалось удалить ограничения: {e}")
-
-# Константы Windows API
-SE_PROCESS = 16
-DACL_SECURITY_INFORMATION = 0x00000004
-
-PROCESS_ALL_ACCESS = 0x1F0FFF
-READ_CONTROL = 0x00020000
-WRITE_DAC = 0x00040000
-
-# SYSTEM SID (S-1-5-18)
-SYSTEM_SID = b'\x01\x00\x00\x00\x00\x00\x00\x05\x0a\x00\x00\x00'
-
-def enable_stronger_self_protection():
-    """
-    Блокирует завершение процесса через диспетчер задач и другие процессы.
-    Запрещает завершение всем, кроме владельца.
-    """
-    try:
-        kernel32 = ctypes.windll.kernel32
-        advapi32 = ctypes.windll.advapi32
-
-        SE_KERNEL_OBJECT = 6  # Тип объекта: процесс/поток
-        DACL_SECURITY_INFORMATION = 0x00000004
-        PROCESS_TERMINATE = 0x0001
-        READ_CONTROL = 0x00020000
-        WRITE_DAC = 0x00040000
-        EVERYONE_SID = b'\x01\x01\x00\x00\x00\x00\x00\x05\x0a\x00\x00\x00'  # SID Everyone
-
-        current_pid = os.getpid()
-        print(f"[DEBUG] Текущий PID: {current_pid}")
-
-        hProcess = kernel32.OpenProcess(
-            WRITE_DAC | READ_CONTROL,
-            False,
-            current_pid
-        )
-        if not hProcess:
-            error = ctypes.GetLastError()
-            print(f"[!] Не удалось открыть процесс. Код ошибки: {error}")
-            return
-
-        print(f"[DEBUG] Хендл процесса: {hProcess} (тип: {type(hProcess)})")
-
-        # Получаем размер Security Descriptor
-        dwBufferSize = ctypes.c_ulong(0)
-        res = advapi32.GetSecurityInfo(
-            hProcess,
-            SE_KERNEL_OBJECT,
-            DACL_SECURITY_INFORMATION,
-            None, None, None, None,
-            ctypes.byref(dwBufferSize)
-        )
-
-        if res != 0x7A and res != 0:
-            print(f"[!] GetSecurityInfo провалился. Код ошибки: {res}")
-            kernel32.CloseHandle(hProcess)
-            return
-
-        sd_buffer = ctypes.create_string_buffer(dwBufferSize.value)
-        psd = ctypes.cast(sd_buffer, ctypes.POINTER(ctypes.c_byte))
-
-        res = advapi32.GetSecurityInfo(
-            hProcess,
-            SE_KERNEL_OBJECT,
-            DACL_SECURITY_INFORMATION,
-            None, None, None, None,
-            psd
-        )
-
-        if res != 0:
-            print(f"[!] Ошибка получения Security Descriptor: {res}")
-            kernel32.CloseHandle(hProcess)
-            return
-
-        print("[DEBUG] Security Descriptor успешно получен")
-
-        # Создаём новый DACL
-        dacl_size = ctypes.sizeof(ctypes.c_byte) * 1024
-        pDacl = ctypes.create_string_buffer(dacl_size)
-
-        res = advapi32.InitializeAcl(pDacl, dacl_size, 2)
-        if not res:
-            print(f"[!] InitializeAcl провалился. Код ошибки: {ctypes.GetLastError()}")
-            kernel32.CloseHandle(hProcess)
-            return
-
-        print("[DEBUG] DACL создан")
-
-        # Добавляем ACE, запрещающий завершение всем
-        res = advapi32.AddAccessDeniedAce(
-            pDacl, 2, PROCESS_TERMINATE, EVERYONE_SID
-        )
-        if not res:
-            print(f"[!] AddAccessDeniedAce (Everyone) провалился. Код ошибки: {ctypes.GetLastError()}")
-            kernel32.CloseHandle(hProcess)
-            return
-
-        print("[DEBUG] ACE (Everyone) успешно добавлен")
-
-        # Применяем DACL через SetSecurityInfo
-        res = advapi32.SetSecurityInfo(
-            hProcess,
-            SE_KERNEL_OBJECT,
-            DACL_SECURITY_INFORMATION,
-            None, None, pDacl, None
-        )
-
-        kernel32.CloseHandle(hProcess)
-
-        if res == 0:
-            print("[+] Усиленная самозащита включена")
-        else:
-            print(f"[!] SetSecurityInfo провалился. Код ошибки: {res}")
-
-    except Exception as e:
-        print(f"[!] Исключение при включении самозащиты: {e}")
-
-def is_admin():
-    """Проверяет, запущено ли приложение от имени администратора."""
-    try:
-        return ctypes.windll.shell32.IsUserAnAdmin()
-    except:
-        return False
 
 def download_antivirus_scanners():
     """Предлагает скачать антивирусные сканеры"""
@@ -703,9 +737,11 @@ def menu():
         print("6. Завершить процесс")
         print("7. Проверить файл hosts")
         print("8. Восстановить файл hosts")
-        print("9. Удалить ограничения реестра")
+        print("9. Удалить ограничения на запуск файлов")
         print("10. Скачать антивирусные сканеры")
         print("11. Выход")
+        print("12. Проверить/разблокировать CMD, Диспетчер задач, PowerShell, Редактор реестра и тд.")
+        print("13. Управление портами")
 
         choice = input("Выберите действие: ").strip()
 
@@ -770,6 +806,10 @@ def menu():
             mark_process_closed_by_user()
             time.sleep(2)  # Даём watchdog время увидеть флаг
             os._exit(0)
+        elif choice == '12':
+            check_registry_restrictions()
+        elif choice == '13':
+            port_menu()
         else:
             print("Неверный выбор. Попробуйте снова.")
 
@@ -782,10 +822,7 @@ def is_already_running():
     return False
 
 def main():
-    if not is_admin():
-        print("[!] Для включения самозащиты требуется запускать программу от имени администратора.")
     # if "--anti-killer" in sys.argv:
-    enable_stronger_self_protection() # Включаем самозащиту
     check_for_updates()
     check_hosts_file()  # Проверяем hosts при запуске
     menu()
@@ -794,7 +831,6 @@ if __name__ == "__main__":
     if is_already_running():
         sys.exit(0)
     clear_exit_flag()  # Очищаем флаг при запуске
-
     # Сохраняем PID основного процесса
     main_pid = os.getpid()
     main()
