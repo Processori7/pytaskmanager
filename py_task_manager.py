@@ -742,6 +742,7 @@ def menu():
         print("11. Выход")
         print("12. Проверить/разблокировать CMD, Диспетчер задач, PowerShell, Редактор реестра и тд.")
         print("13. Управление портами")
+        print("14. Открыть последний релиз на GitHub")
 
         choice = input("Выберите действие: ").strip()
 
@@ -810,6 +811,8 @@ def menu():
             check_registry_restrictions()
         elif choice == '13':
             port_menu()
+        elif choice == '14':
+            webbrowser.open("https://github.com/Processori7/pytaskmanager/releases/latest")
         else:
             print("Неверный выбор. Попробуйте снова.")
 
